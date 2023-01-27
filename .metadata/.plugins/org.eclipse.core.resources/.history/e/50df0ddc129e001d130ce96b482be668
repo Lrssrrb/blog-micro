@@ -1,0 +1,147 @@
+package com.blog.controller;
+
+import java.net.URI;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.RequestEntity;
+import org.springframework.http.ResponseEntity;
+import org.springframework.util.MultiValueMapAdapter;
+import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestTemplate;
+
+import com.blog.exeption.UserExeption;
+import com.blog.payloads.ApiResponse;
+import com.blog.payloads.CategoryDto;
+import com.blog.payloads.UserAdmin;
+import com.blog.services.CategoryService;
+
+import jakarta.validation.Valid;
+
+@RestController
+@RequestMapping("/api/categories")
+@CrossOrigin("*")
+public class CategoryController {
+	
+	@Autowired
+	private CategoryService categoryService;	
+	
+	private UserAdmin user;
+	
+	@Autowired
+	RestTemplate restTemplate;
+	
+	private void getUser(Map<String, List<String>> jwt) {
+		
+		if(user == null) {
+			
+			try {
+				Object header = jwt.get("authorization");
+				String h = header.toString();
+				jwt.clear();
+				List<String> list = new ArrayList<>();
+				list.add(h);
+				jwt.put("authorization", list);
+				
+				MultiValueMapAdapter<String, String> multiValueMapAdapter = new MultiValueMapAdapter<>(jwt);
+				URI uri = new URI("http://localhost:8001/api/users/isAdmin");
+				RequestEntity<String> requestEntity = new RequestEntity<>("",multiValueMapAdapter,HttpMethod.GET,uri);
+				ResponseEntity<UserAdmin> exchange = restTemplate.exchange(requestEntity, UserAdmin.class);
+
+				user = exchange.getBody();
+			} catch (Exception e) {
+					throw new UserExeption("Service unavalable.");
+			}
+		}
+		else if(user.getValidity().isBefore(LocalDateTime.now())){
+			throw new UserExeption("Token Expiered");
+		}
+	}
+
+	@PostMapping("/")
+	public ResponseEntity<CategoryDto> createCategory(@Valid @RequestBody CategoryDto categoryDto,@RequestHeader Map<String, List<String>> jwt){
+
+		this.getUser(jwt);
+		
+		if(user.getUser()==null)
+			throw new UserExeption("Please login first.");
+		else
+			if(!user.isAdmin())
+				throw new UserExeption("Only admin can create category");
+		
+		CategoryDto createCategory = this.categoryService.createCategory(categoryDto);
+		return new ResponseEntity<CategoryDto>(createCategory, HttpStatus.CREATED);
+	}
+	
+	@PutMapping("/{catId}")
+	public ResponseEntity<CategoryDto> updateCategory(@Valid @RequestBody CategoryDto categoryDto,@PathVariable Integer catId,@RequestHeader Map<String, List<String>> jwt){
+		
+		this.getUser(jwt);
+		
+		if(user.getUser()==null)
+			throw new UserExeption("Please login first.");
+		else
+			if(!user.isAdmin())
+				throw new UserExeption("Only admin can create category");
+		
+		CategoryDto updatedCategory = this.categoryService.updateCategory(categoryDto,catId);
+		return new ResponseEntity<CategoryDto>(updatedCategory, HttpStatus.OK);
+	}
+	
+	@DeleteMapping("/{catId}")
+	public ResponseEntity<ApiResponse> deleteCategory(@PathVariable Integer catId,@RequestHeader Map<String, List<String>> jwt){
+		
+		this.getUser(jwt);	
+		
+		if(user.getUser()==null)
+			throw new UserExeption("Please login first.");
+		else
+			if(!user.isAdmin())
+				throw new UserExeption("Only admin can create category");
+		
+		this.categoryService.deleteCategory(catId);
+		return new ResponseEntity<ApiResponse>(new ApiResponse("User deleted Successfully", true), HttpStatus.OK);
+	}
+	
+	@GetMapping("/{catId}")
+	public ResponseEntity<CategoryDto> getCategory(@PathVariable Integer catId,@RequestHeader Map<String, List<String>> jwt){
+		
+		this.getUser(jwt);	
+		
+		if(user.getUser()==null)
+			throw new UserExeption("Please login first.");
+		
+		CategoryDto categoryDto = this.categoryService.getCategory(catId);
+		return new ResponseEntity<CategoryDto>(categoryDto, HttpStatus.OK);
+	}
+	
+	
+	@GetMapping("/")
+	public ResponseEntity<List<CategoryDto>> getCategories(@RequestHeader Map<String, List<String>> jwt){
+		
+	
+		this.getUser(jwt);
+		
+//		if(user.getUser()==null)
+//			throw new UserExeption("Please login first.");
+		
+		List<CategoryDto> categories = this.categoryService.getCategories();
+		return new ResponseEntity<List<CategoryDto>>(categories, HttpStatus.OK);
+	}
+	
+	
+}

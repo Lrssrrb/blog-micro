@@ -1,0 +1,5 @@
+spring.application.name=SERVER
+server.port=9001
+eureka.client.enabled=false
+eureka.client.register-with-eureka=false
+eureka.client.fetch-registry=false

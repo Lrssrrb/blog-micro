@@ -1,0 +1,296 @@
+package com.blog.controller;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URI;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.RequestEntity;
+import org.springframework.http.ResponseEntity;
+import org.springframework.util.MultiValueMapAdapter;
+import org.springframework.util.StreamUtils;
+import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.web.multipart.MultipartFile;
+
+import com.blog.config.AppConstants;
+import com.blog.exeption.UserExeption;
+import com.blog.payloads.CategoryDto;
+import com.blog.payloads.PostDto;
+import com.blog.payloads.PostResponce;
+import com.blog.payloads.UserAdmin;
+import com.blog.payloads.UserDto;
+import com.blog.services.FileService;
+import com.blog.services.PostService;
+
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.validation.Valid;
+
+@RestController
+@RequestMapping("/api/post")
+@CrossOrigin("*")
+public class PostController {
+	
+	@Autowired
+	private PostService postService;
+	
+	@Autowired
+	private FileService fileService;
+	
+	@Autowired
+	RestTemplate restTemplate;
+	
+	@Value("${project.image}")
+	private String path;// = "images/";
+	
+	UserAdmin user;
+	UserDto userDto;
+	CategoryDto category;
+	
+	
+	private void getUser(Map<String, List<String>> jwt,int catId) {
+		
+		if(user == null) {
+			try {
+				Object header = jwt.get("authorization");
+				String h = header.toString();
+				jwt.clear();
+				List<String> list = new ArrayList<>();
+				list.add(h);
+				jwt.put("authorization", list);
+				
+				MultiValueMapAdapter<String, String> multiValueMapAdapter = new MultiValueMapAdapter<>(jwt);
+				URI uri = new URI("http://localhost:8001/api/users/isAdmin");
+				RequestEntity<String> requestEntity = new RequestEntity<>("",multiValueMapAdapter,HttpMethod.GET,uri);
+				ResponseEntity<UserAdmin> exchange = restTemplate.exchange(requestEntity, UserAdmin.class);
+
+				user = exchange.getBody();
+
+				userDto = restTemplate.getForObject("http://localhost:8001/api/users/getByEmail",UserDto.class, user.getUser());
+				
+				
+				
+				} catch (Exception e) {
+					throw new UserExeption("Service unavalable.");
+			}
+		}
+		
+		else if(user.getValidity().isBefore(LocalDateTime.now())){
+			throw new UserExeption("Token Expiered");
+		}
+		if(category == null && catId > 0) {
+			
+			try {
+				Object header = jwt.get("authorization");
+				String h = header.toString();
+				jwt.clear();
+				List<String> list = new ArrayList<>();
+				list.add(h);
+				jwt.put("authorization", list);
+				
+				MultiValueMapAdapter<String, String> multiValueMapAdapter = new MultiValueMapAdapter<>(jwt);
+				URI uri = new URI("http://localhost:8001/api/categories/"+catId);
+				RequestEntity<String> requestEntity = new RequestEntity<>("",multiValueMapAdapter,HttpMethod.GET,uri);
+				@SuppressWarnings("rawtypes")
+				ResponseEntity<ResponseEntity> exchange = restTemplate.exchange(requestEntity, ResponseEntity.class);
+				
+				System.out.println(exchange);
+				
+			} catch (Exception e) {
+				throw new UserExeption("Service unavalable");
+			}
+			
+//				ResponseEntity<CategoryDto> rEntity = restTemplate.getForObject("http://localhost:8001/api/categories/"+catId, ResponseEntity.class);
+//				
+//				category = rEntity.getBody();
+			
+		}
+	}
+	
+	@PostMapping("/category/{categoryId}")
+	public ResponseEntity<PostDto>createPost(
+			@Valid @RequestBody PostDto postDto,
+			@PathVariable Integer categoryId
+			,@RequestHeader Map<String, List<String>> jwt){
+		
+		getUser(jwt, categoryId);
+		
+		PostDto createPost = this.postService.createPost(postDto, category,userDto);
+		return new ResponseEntity<PostDto>(createPost, HttpStatus.CREATED);
+	}
+	
+	@GetMapping("/user/{userId}")
+	public ResponseEntity<List<PostDto>> getPostsByUser(
+			@PathVariable Integer userId
+			){
+		
+		
+		List<PostDto> posts = this.postService.getPostsByUser(userId);
+		return new ResponseEntity<List<PostDto>>(posts, HttpStatus.OK);
+	}
+	
+	@GetMapping("/category/{categoryId}")
+	public ResponseEntity<List<PostDto>> getPostsByCategory(
+			@PathVariable Integer categoryId
+			){
+		
+		List<PostDto> posts = this.postService.getPostsByCategory(categoryId);
+		return new ResponseEntity<List<PostDto>>(posts, HttpStatus.OK);
+	}
+	
+	@GetMapping("/{postId}")
+	public ResponseEntity<PostDto> getPostsById(
+			@PathVariable Integer postId
+			){
+		PostDto posts = this.postService.getPostById(postId);
+		return new ResponseEntity<PostDto>(posts, HttpStatus.OK);
+	}
+	
+	@GetMapping("")
+	public ResponseEntity<List<PostDto>> getAllPosts(){
+		List<PostDto> allPosts = this.postService.getAllPost();
+		return new ResponseEntity<List<PostDto>>(allPosts, HttpStatus.OK);
+	}
+	
+	@PutMapping("/{postId}")
+	public ResponseEntity<PostDto> updatePostById(
+			@PathVariable Integer postId,
+			@RequestBody PostDto postDto
+			,@RequestHeader Map<String, List<String>> jwt){
+		
+		getUser(jwt, -1);
+		
+		return new ResponseEntity<PostDto>(this.postService.updatePost(postDto, postId,user,userDto), HttpStatus.OK);
+	}
+	
+	@DeleteMapping("/{postId}")
+	public ResponseEntity<String> deletePostById(
+			@PathVariable Integer postId,
+			@RequestHeader Map<String, List<String>> jwt){
+		
+		getUser(jwt, -1);
+		
+		this.postService.deletePost(postId,user,userDto);
+		return new ResponseEntity<String>("Post with id : "+postId+" is now deleted.", HttpStatus.OK);
+	}
+	
+	
+//	public PostResponce getPagedPostByUser(int userId,int page_size,int page_Number)
+//	@GetMapping("/pagedPosts/user/{userId}/size/{pageSize}/number/{pageNumber}")
+//	public ResponseEntity<PostResponce> getPagedPostByUser(
+//			@PathVariable int userId,
+//			@PathVariable int pageSize,
+//			@PathVariable int pageNumber
+//			){
+//		
+//				return new ResponseEntity<PostResponce>(this.postService.getPagedPostByUser(userId, pageSize, pageNumber), HttpStatus.OK);
+//	}
+	
+//	public PostResponce getPagedPostByCategory(int categoryId, int page_size, int page_number)
+//	@GetMapping("/pagedPosts/category/{categoryId}/size/{pageSize}/number/{pageNumber}")
+//	public ResponseEntity<PostResponce> getPagedPostByCategory(
+//			@PathVariable int categoryId,
+//			@PathVariable int pageSize,
+//			@PathVariable int pageNumber
+//			){
+//		
+//				return new ResponseEntity<PostResponce>(this.postService.getPagedPostByUser(categoryId, pageSize, pageNumber), HttpStatus.OK);
+//	}
+	
+	@GetMapping("/pagedPosts/size/{pageSize}/number/{pageNumber}/sortBy/{sortBy}/asc/{sorted}")
+	public ResponseEntity<PostResponce> getEveryThing(
+			@RequestParam(value = "pageSize",defaultValue = AppConstants.PAGE_NUMBER,required = false)int pageSize,
+			@RequestParam(value = "pageNumber",defaultValue = AppConstants.PAGE_NUMBER,required = false)int pageNumber,
+			@RequestParam(value = "sortBy",defaultValue = AppConstants.SORT_BY,required = false)String sortBy,
+			@RequestParam(value = "sorted",defaultValue = AppConstants.SORT_DIR,required = false)String sorted
+			){
+		
+		return new ResponseEntity<PostResponce>(this.postService.getEverything(pageSize, pageNumber,sortBy,sorted), HttpStatus.OK);
+	}
+	
+	@GetMapping("/search/{keyword}")
+	public ResponseEntity<List<PostDto>> searchPostByTitle(
+			@PathVariable("keyword") String keyword
+			){
+		List<PostDto> searchPost = this.postService.searchPost(keyword);
+		return new ResponseEntity<List<PostDto>>(searchPost, HttpStatus.OK);
+	}
+	
+	@PostMapping("/image/upload/postid/{postId}")
+	public ResponseEntity<PostDto> uploadPostImage(
+			@RequestParam("image") MultipartFile image,
+			@PathVariable Integer postId,
+			@RequestHeader Map<String, List<String>> jwt
+			) throws IOException{
+		
+		getUser(jwt, -1);
+		
+		
+		PostDto postDto = this.postService.getPostById(postId);
+		String fileName = this.fileService.uploadImage(path, image);
+		
+		postDto.setImageName(fileName);
+		PostDto updatePost = this.postService.updatePost(postDto, postId,user,userDto);
+		return new ResponseEntity<PostDto>(updatePost, HttpStatus.OK);
+		
+	}
+	
+	
+	@PostMapping("/image/upload/{categoryId}")
+	public ResponseEntity<PostDto> uploadPost(
+			@RequestParam("image") MultipartFile image,
+//			@Valid @RequestBody PostDto postDto,
+			@RequestParam String title,
+		    @RequestParam String content,
+//		    @RequestParam String imageName,
+			@PathVariable Integer categoryId,
+			@RequestHeader Map<String, List<String>> jwt
+			) throws IOException{
+
+		getUser(jwt, categoryId);
+		
+//		PostDto postDto = this.postService.getPostById(postId);
+		String fileName = this.fileService.uploadImage(path, image);
+		PostDto postDto = new PostDto();
+		postDto.setImageName(fileName);
+		postDto.setContent(content);
+		postDto.setTitle(title);
+		postDto.setImageName(fileName);
+		System.out.println(postDto);
+		PostDto updatePost = this.postService.createPost(postDto, category,userDto);
+		System.out.println(updatePost);
+		return new ResponseEntity<PostDto>(updatePost, HttpStatus.OK);
+		
+	}
+	
+	
+	@GetMapping(value = "/image/{imageName}",produces = MediaType.IMAGE_JPEG_VALUE)
+	public void ShowImage(
+			@PathVariable("imageName") String imageName,
+			HttpServletResponse response
+			) throws IOException {
+		
+		InputStream resorce = this.fileService.getResource(path, imageName);
+		response.setContentType(MediaType.IMAGE_JPEG_VALUE);
+		StreamUtils.copy(resorce,response.getOutputStream());
+	}
+	
+}
